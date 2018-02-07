@@ -1,0 +1,6 @@
+[submodule "abseil-cpp"]
+	path = abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
+[submodule "cctz"]
+	path = cctz
+	url = https://github.com/google/cctz
