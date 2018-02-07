@@ -1,0 +1,5 @@
+cmake_minimum_required (VERSION 2.6)
+project (KMapSolver)
+add_library(KMapSolverLib kmap_solver.cc kmap_solver.h)
+add_executable(KMapSolver main.cc)
+target_link_libraries(KMapSolver KMapSolverLib)
