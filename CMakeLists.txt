@@ -14,7 +14,18 @@ endif()
 
 add_subdirectory(cctz)
 add_subdirectory(abseil-cpp)
+include_directories(${abseil_SOURCE_DIR}/include ${abseil_SOURCE_DIR})
+# Prevent overriding the parent project's compiler/linker
+# settings on Windows
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+add_subdirectory(googletest)
 
 add_library(KMapSolverLib kmap_solver.cc kmap_solver.h)
+target_link_libraries(KMapSolverLib absl::strings)
 add_executable(KMapSolver main.cc)
 target_link_libraries(KMapSolver KMapSolverLib absl::strings)
+
+add_executable(KmapSolverTest kmap_solver_test.cc)
+include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
+add_dependencies(KmapSolverTest gtest)
+target_link_libraries(KmapSolverTest KMapSolverLib gtest gmock gtest_main absl::strings)

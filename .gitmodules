@@ -4,3 +4,6 @@
 [submodule "cctz"]
 	path = cctz
 	url = https://github.com/google/cctz
+[submodule "googletest"]
+	path = googletest
+	url = https://github.com/google/googletest
