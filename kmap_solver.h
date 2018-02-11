@@ -50,7 +50,7 @@ struct Group {
   std::string SOP(const std::vector<std::string>& variable_names) const;
 };
 
-std::vector<Group> SolveKMap(int num_inputs, std::unordered_set<unsigned long> on_vars, std::unordered_set<unsigned long> dc_vars);
+std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<unsigned long>& on_vars, const std::unordered_set<unsigned long>& dc_vars);
 
 std::string SOP(const std::vector<Group>& group, const std::vector<std::string>& vars);
 }

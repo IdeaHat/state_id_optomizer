@@ -44,9 +44,9 @@ TEST(KMapSolveTest, ThreeVarsNoRace) {
   }
 
   EXPECT_THAT(terms, testing::UnorderedElementsAre(
-     "t' v'" ,
-     "t v" ,
-     "d" )) << sop;
+    "t' v'",
+    "t v",
+    "d")) << sop;
 }
 
 TEST(KMapSolveTest, ThreeVarsRace) {
@@ -83,63 +83,12 @@ TEST(KMapSolveTest, ThreeVarsRace) {
     "a' c")) << sop;
 }
 
-TEST(KMapSolveTest, FourVarsRaceWithDC) {
-
-  auto groups = SolveKMap(4,
-                          std::unordered_set<unsigned long>{ 0b0000, 0b0001, 0b1111, 0b1110 },
-                          std::unordered_set<unsigned long>{ 0b0100, 0b0101, 0b0111, 0b0110});
-
-  std::string sop = SOP(groups, { "a", "b", "c", "d" });
-
-  EXPECT_THAT(
-    groups,
-    testing::UnorderedElementsAre(
-      Group{ 0b0000, 0b0101, 4 },
-      Group{ 0b0110, 0b0110, 4 },
-      Group{ 0b0100, 0b0011, 4 })) << sop;
-  // split the terms by + and trim.
-  std::vector<std::string> terms = absl::StrSplit(sop, "+");
-  for (std::string& t : terms) {
-    t = trim(t);
-  }
-
-  EXPECT_THAT(terms, testing::UnorderedElementsAre(
-    "a' c'",
-    "b c",
-    "a' b")) << sop;
-}
-
-TEST(KMapSolveTest, FiveVarsRaceWithDC) {
-
-  auto groups = SolveKMap(5,
-                          std::unordered_set<unsigned long>{ 0b00000, 0b00010, 0b01000, 0b01111, 0b11011, 0b11111 },
-                          std::unordered_set<unsigned long>{ 0b01010, 0b01011});
-
-  std::string sop = SOP(groups, { "a", "b", "c", "d", "e" });
-
-  EXPECT_THAT(
-    groups,
-    testing::UnorderedElementsAre(
-      Group{ 0b00000, 0b01010, 5 },
-      Group{ 0b01011, 0b10100, 5 },
-      Group{ 0b01010, 0b00001, 5 })) << sop;
-  // split the terms by + and trim.
-  std::vector<std::string> terms = absl::StrSplit(sop, "+");
-  for (std::string& t : terms) {
-    t = trim(t);
-  }
-
-  EXPECT_THAT(terms, testing::UnorderedElementsAre(
-    "a' c' e'",
-    "b d e",
-    "a' b c' d")) << sop;
-}
 
 TEST(KMapSolveTest, SixVarsRaceWithDC) {
 
   auto groups = SolveKMap(6,
                           std::unordered_set<unsigned long>{
-      0b000000, 0b000001, 0b001000,
+    0b000000, 0b000001, 0b001000,
       0b001111, 0b011101, 0b011111,
       0b100001, 0b100011, 0b101011,
       0b101100, 0b111100, 0b111101},
@@ -156,7 +105,7 @@ TEST(KMapSolveTest, SixVarsRaceWithDC) {
       Group{ 0b100001, 0b001010, 6 },
       Group{ 0b101100, 0b010001, 6 },
       Group{ 0b001001, 0b100100, 6 }
-      )) << sop;
+  )) << sop;
   // split the terms by + and trim.
   std::vector<std::string> terms = absl::StrSplit(sop, "+");
   for (std::string& t : terms) {
@@ -167,7 +116,26 @@ TEST(KMapSolveTest, SixVarsRaceWithDC) {
     "a' b' d' e'",
     "a' c d f",
     "a c d e'",
-    "b' c e' f")) << sop;
+    "b' c e' f",
+    "a b' d' f")) << sop;
+}
+
+TEST(KMapSolveTest, ReallyExpensive6var) {
+
+  std::unordered_set<unsigned long> ones{
+    0b000000, 0b000011, 0b001001, 0b001010, 0b011000, 0b011010, 0b010001, 0b010010,
+      0b000101, 0b000110, 0b001100, 0b001111, 0b011101, 0b011110, 0b010100, 0b010111,
+      0b100100, 0b100111, 0b101101, 0b101110, 0b111100, 0b111110, 0b110101, 0b110110,
+      0b100001, 0b100010, 0b101000, 0b101011, 0b111001, 0b111010, 0b110000, 0b110011 };
+  auto terms = SolveKMap(6,
+                         ones,
+                         std::unordered_set<unsigned long>{ });
+
+  std::vector<Group> groups;
+  for (auto l : ones) {
+    groups.push_back({ l, 0, 6 });
+  }
+  EXPECT_THAT(terms, testing::UnorderedElementsAreArray(groups));
 }
 
 
