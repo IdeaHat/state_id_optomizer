@@ -7,27 +7,27 @@
 namespace kmap_solver {
 
 struct Group {
-  unsigned long val;
-  unsigned long dc;
-  int size;
-  unsigned long bit_mask() const {
+  size_t val = 0;
+  size_t dc = 0;
+  int size = 0;
+  size_t bit_mask() const {
     return (1UL << size) - 1UL;
   }
 
-  unsigned long OverlapLong(const Group& t) const {
+  size_t OverlapLong(const Group& t) const {
     return ((t.val | val) & (~dc) & (~t.dc) & ((~t.val) | (~val))) & bit_mask();
   }
   bool Overlap(const Group& t) const {
     return OverlapLong(t) == 0;
   }
-  bool Overlap(unsigned long v) const
+  bool Overlap(size_t v) const
   {
     return Overlap(Group{ v, 0UL, size });
   }
   bool RaceHazard(const Group& t) const {
     // Are there any races between two groups? You can tell there is a race if the two groups are disjoint
     // by only one term.
-    unsigned long l = OverlapLong(t);
+    size_t l = OverlapLong(t);
     return l != 0 && ((l & (l - 1)) == 0);
   }
   int NumDC() const {
@@ -50,8 +50,49 @@ struct Group {
   std::string SOP(const std::vector<std::string>& variable_names) const;
 };
 
-std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<unsigned long>& on_vars, const std::unordered_set<unsigned long>& dc_vars);
+std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<size_t>& on_vars, const std::unordered_set<size_t>& dc_vars,
+                             size_t* cost_ptr = nullptr);
 
 std::string SOP(const std::vector<Group>& group, const std::vector<std::string>& vars);
+
+struct StateTransition {
+  // Must be above 0.
+  ptrdiff_t from_state;
+  // Inputs.
+  size_t inputs;
+  // To state. Less than 0 indicates don't care.
+  ptrdiff_t to_state;
+  // Outputs.
+  Group outputs;
+};
+
+struct FlipFlop {
+  size_t gate_count;
+  size_t input_count;
+  Group transitions[4];
+};
+
+inline FlipFlop SNotR() {
+  return { 2, 2,
+  {{0b00, 0b01, 2},
+  {0b11, 0b00, 2},
+  {0b00, 0b00, 2},
+  {0b01, 0b10, 2}} };
+}
+
+inline size_t transition_index(const bool from_state, const bool to_state) {
+  return (from_state ? 0b10 : 0b00) | (to_state ? 0b01 : 0b00);
+}
+
+void AssignStates(
+  const FlipFlop& flip_flop,
+  size_t num_states,
+  size_t num_inputs,
+  size_t num_outputs,
+  const std::vector<StateTransition>& state_transitions,
+  std::vector<size_t>* state_ids,
+  std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
+  std::vector<std::vector<Group>>* outputs);
+
 }
 #endif

@@ -20,8 +20,8 @@ struct hash<kmap_solver::Group> {
     // second and third and combine them using XOR
     // and bit shifting:
 
-    return ((hash<unsigned long>()(k.val)
-             ^ (hash<unsigned long>()(k.dc) << 1)) >> 1)
+    return ((hash<size_t>()(k.val)
+             ^ (hash<size_t>()(k.dc) << 1)) >> 1)
       ^ (hash<int>()(k.size) << 1);
   }
 };
@@ -118,10 +118,10 @@ void MakeCostGraphForGroups(
 }
 
 template <typename Iterator>
-bool GroupCoverage(Iterator grouping_begin, Iterator grouping_end, std::unordered_set<unsigned long> on_vars) {
+bool GroupCoverage(Iterator grouping_begin, Iterator grouping_end, std::unordered_set<size_t> on_vars) {
   // Can be made O(n+m) if I use clever bit hacks.
   return std::all_of(on_vars.begin(), on_vars.end(),
-                     [&](unsigned long t)->bool {
+                     [&](size_t t)->bool {
     return std::any_of(grouping_begin, grouping_end, [=](const Group& group)->bool {
       return group.Overlap(t);
     }); });
@@ -163,7 +163,7 @@ int GroupCost(Iterator grouping_begin, Iterator grouping_end)
 template <typename Iterator>
 bool GroupingCost(Iterator starting_grouping_begin,
                   Iterator starting_grouping_end,
-                  std::unordered_set<unsigned long> on_vars,
+                  std::unordered_set<size_t> on_vars,
                   unsigned int* min_cost, std::vector<Group>* min_group) {
   if (!GroupCoverage(starting_grouping_begin,
                      starting_grouping_end,
@@ -189,7 +189,7 @@ std::unordered_set<Group> CombineAdjacentRectages(
   std::unordered_set<Group> ret;
   for (auto g = last_starts.begin(); g != last_starts.end(); ++g) {
     for (int j = 0; j < num_inputs; j++) {
-      unsigned long bit_mask = 1UL << j;
+      size_t bit_mask = 1UL << j;
       // If this bit is already dc, don't need to check.
       if ((g->dc & bit_mask) != 0UL) {
         continue;
@@ -207,7 +207,7 @@ std::unordered_set<Group> CombineAdjacentRectages(
 
 std::tuple<std::vector<std::vector<Group>>, std::vector<std::vector<Group>>> FindAllGroups(
   int num_inputs,
-  const std::unordered_set<unsigned long>& on_vars, const std::unordered_set<unsigned long>& dc_vars) {
+  const std::unordered_set<size_t>& on_vars, const std::unordered_set<size_t>& dc_vars) {
   // Only groups with equivalent dont cares, and a hamming distance of 1 can be combined.
   // For size=1, copy over vars with dc = 0.
   std::unordered_set<Group> dc_groups;
@@ -254,8 +254,8 @@ std::tuple<std::vector<std::vector<Group>>, std::vector<std::vector<Group>>> Fin
 } // namespace
 
 std::string Group::SOP(const std::vector<std::string>& variable_names) const {
-  unsigned long d = dc;
-  unsigned long v = val;
+  size_t d = dc;
+  size_t v = val;
   std::vector<std::string> terms;
   for (unsigned int i = 0; i < variable_names.size(); i++) {
     // MSB corresponds to largest variable name.
@@ -268,7 +268,8 @@ std::string Group::SOP(const std::vector<std::string>& variable_names) const {
   return absl::StrJoin(terms, " ");
 }
 
-std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<unsigned long>& on_vars, const std::unordered_set<unsigned long>& dc_vars)
+std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<size_t>& on_vars, const std::unordered_set<size_t>& dc_vars,
+                             size_t* cost_ptr)
 {
 
   std::vector<std::vector<Group>> dc_level_groups;
@@ -321,6 +322,9 @@ std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<unsigned l
                      on_vars, &min_cost, &group)) break;
 
   }
+  if (cost_ptr) {
+    *cost_ptr = cost;
+  }
   return group;
 }
 
@@ -331,4 +335,153 @@ std::string SOP(const std::vector<Group>& group, const std::vector<std::string>&
   }
   return absl::StrJoin(terms, " + ");
 }
+
+namespace {
+void CheckStateAssignment(
+  const size_t num_inputs,
+  const size_t num_outpus,
+  const size_t state_bits,
+  const FlipFlop& flip_flop,
+  const std::vector<StateTransition>& state_transitions,
+  const std::vector<size_t>& state_ids,
+  std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
+  std::vector<std::vector<Group>>* outputs,
+  size_t* cost_ptr = nullptr) {
+  // First solve each flip flop input.
+  flip_flop_inputs->clear();
+  flip_flop_inputs->reserve(state_bits);
+  size_t cost = 0;
+  for (int i = 0; i < state_bits; i++) {
+    flip_flop_inputs->emplace_back();
+    const size_t input_bit_mask = (1UL << i);
+    for (int flip_flop_input = 0; flip_flop_input < flip_flop.input_count; flip_flop_input++) {
+      const size_t flip_flop_input_bit_mask = (1UL << (flip_flop.input_count - 1 - flip_flop_input));
+      // Convert to truth table.
+      std::unordered_set<size_t> ones;
+      std::unordered_set<size_t> dcs;
+      for (const auto& state_transisiton : state_transitions) {
+        const bool from_state_bit = state_transisiton.from_state & input_bit_mask;
+        const bool to_state_bit = state_transisiton.to_state & input_bit_mask;
+        const auto& transition_group = flip_flop.transitions[transition_index(from_state_bit, to_state_bit)];
+
+        std::unordered_set<size_t>* target_state = nullptr;
+        if (state_transisiton.to_state < 0 || (transition_group.dc & flip_flop_input_bit_mask)) {
+          target_state = &dcs;
+        } else if (transition_group.val & flip_flop_input_bit_mask) {
+          target_state = &ones;
+        } else {
+          continue;
+        }
+        size_t inputs = state_transisiton.inputs;
+        // add the input bits.
+        inputs |= (state_ids[state_transisiton.from_state] << (num_inputs + state_bits-1));
+        target_state->insert(inputs);
+      }
+      // now we have a full truth table - solve it.
+      size_t output_cost;
+      flip_flop_inputs->back().push_back(
+        SolveKMap(num_inputs + state_bits, ones, dcs, &output_cost));
+      cost += output_cost;
+    }
+  }
+  cost += flip_flop.gate_count * state_bits;
+
+  // Do the same for output bits.
+  outputs->clear();
+  for (int i = 0; i < num_outpus; i++) {
+    const size_t flip_flop_input_bit_mask = (1UL << (num_outpus - i - 1));
+    std::unordered_set<size_t> ones;
+    std::unordered_set<size_t> dcs;
+    for (const auto& state_transisiton : state_transitions) {
+      std::unordered_set<size_t>* target_state = nullptr;
+      const auto& transition_group = state_transisiton.outputs;
+      if (transition_group.dc & flip_flop_input_bit_mask) {
+        target_state = &dcs;
+      } else if (transition_group.val & flip_flop_input_bit_mask) {
+        target_state = &ones;
+      } else {
+        continue;
+      }
+      size_t inputs = state_transisiton.inputs;
+      // add the input bits.
+      inputs |= (state_ids[state_transisiton.from_state] << (num_inputs + state_bits));
+      target_state->insert(inputs);
+    }
+    size_t output_cost;
+    outputs->push_back(
+      SolveKMap(num_inputs + state_bits, ones, dcs, &output_cost));
+    cost += output_cost;
+  }
+  
+  if (cost_ptr != nullptr) *cost_ptr = cost;
+}
+int max_bit(size_t b) {
+  int i = sizeof(size_t) * 8;
+  for (; i >= 0;  --i) {
+    if (b & (1UL << i)) {
+      break;
+    }
+  }
+  return i;
+}
+}
+
+void AssignStates(
+  const FlipFlop& flip_flop,
+  size_t num_states,
+  size_t num_inputs,
+  size_t num_outputs,
+  const std::vector<StateTransition>& state_transitions,
+  std::vector<size_t>* state_ids,
+  std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
+  std::vector<std::vector<Group>>* outputs) {
+  int state_bits = max_bit(num_states);
+  size_t max_state_id = (1 << state_bits);
+  std::vector<bool> candidate_state_ids_included(max_state_id, false);
+  for (size_t i = 0; i < num_states; ++i) {
+    candidate_state_ids_included[max_state_id - i - 1] = true;
+  }
+
+  std::vector<std::vector<std::vector<Group>>> min_flip_flop_inputs;
+  std::vector<std::vector<Group>> min_outputs;
+  std::vector<size_t> min_state_ids;
+  size_t min_cost = std::numeric_limits<size_t>::max();
+  do {
+    std::vector<size_t> candidate_state_ids;
+    candidate_state_ids.reserve(num_states);
+    for (size_t i = 0; i < candidate_state_ids_included.size(); ++i) {
+      if (candidate_state_ids_included[i]) {
+        candidate_state_ids.push_back(i);
+      }
+    }
+    do {
+      size_t cost;
+
+      std::vector<std::vector<std::vector<Group>>> flip_flop_inputs;
+      std::vector<std::vector<Group>> outputs;
+
+
+      CheckStateAssignment(
+        num_inputs,
+        num_outputs,
+        state_bits,
+        flip_flop,
+        state_transitions,
+        candidate_state_ids,
+        &flip_flop_inputs,
+        &outputs,
+        &cost);
+      if (cost < min_cost) {
+        min_cost = cost;
+        min_flip_flop_inputs = std::move(flip_flop_inputs);
+        min_outputs = std::move(outputs);
+        min_state_ids = candidate_state_ids;
+      }
+    } while (std::next_permutation(candidate_state_ids.begin(), candidate_state_ids.end()));
+  } while (std::next_permutation(candidate_state_ids_included.begin(), candidate_state_ids_included.end()));
+  *state_ids = std::move(min_state_ids);
+  *outputs = std::move(min_outputs);
+  *flip_flop_inputs = std::move(min_flip_flop_inputs);
+}
+
 }
