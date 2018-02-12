@@ -363,17 +363,22 @@ void CheckStateAssignment(
       std::unordered_set<size_t> ones;
       std::unordered_set<size_t> dcs;
       for (const auto& state_transisiton : state_transitions) {
-        const bool from_state_bit = state_transisiton.from_state & input_bit_mask;
-        const bool to_state_bit = state_transisiton.to_state & input_bit_mask;
-        const auto& transition_group = flip_flop.transitions[transition_index(from_state_bit, to_state_bit)];
+        
 
         std::unordered_set<size_t>* target_state = nullptr;
-        if (state_transisiton.to_state < 0 || (transition_group.dc & flip_flop_input_bit_mask)) {
+        if (state_transisiton.to_state < 0) {
           target_state = &dcs;
-        } else if (transition_group.val & flip_flop_input_bit_mask) {
-          target_state = &ones;
         } else {
-          continue;
+          const bool from_state_bit = state_ids[state_transisiton.from_state] & input_bit_mask;
+          const bool to_state_bit = state_ids[state_transisiton.to_state] & input_bit_mask;
+          const auto& transition_group = flip_flop.transitions[transition_index(from_state_bit, to_state_bit)];
+          if (transition_group.dc & input_bit_mask) {
+            target_state = &dcs;
+          } else if (transition_group.val & input_bit_mask) {
+            target_state = &ones;
+          } else {
+            continue;
+          }
         }
         size_t inputs = state_transisiton.inputs;
         // add the input bits.
@@ -434,48 +439,45 @@ int max_bit(size_t b) {
   }
   return i+1;
 }
-}
 
-void AssignStates(
+
+void AssignStatesForCandidates(
   const FlipFlop& flip_flop,
   size_t num_states,
   size_t num_inputs,
   size_t num_outputs,
+  size_t state_bits,
   const std::vector<StateTransition>& state_transitions,
+  const std::vector<size_t> candidate_ids,
   std::vector<size_t>* state_ids,
   std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
-  std::vector<std::vector<Group>>* outputs) {
-  int state_bits = max_bit(num_states);
-  size_t max_state_id = (1 << state_bits);
-  std::vector<bool> candidate_state_ids_excluded(max_state_id, true);
+  std::vector<std::vector<Group>>* outputs,
+  size_t* min_cost) {
+  std::vector<bool> candidate_state_ids_excluded(candidate_ids.size(), true);
   for (int i = 0; i < num_states; ++i) {
     candidate_state_ids_excluded[i] = false;
   }
 
-  std::vector<std::vector<std::vector<Group>>> min_flip_flop_inputs;
-  std::vector<std::vector<Group>> min_outputs;
-  std::vector<size_t> min_state_ids;
-  size_t min_cost = std::numeric_limits<size_t>::max();
   do {
     // Probably a way to do this that isn't O(n), but I don't know if that buys us anything.
     std::vector<size_t> candidate_state_ids;
     candidate_state_ids.reserve(num_states);
     std::vector<size_t> unused_state_ids;
-    unused_state_ids.reserve(max_state_id - num_states);
-    for (int i = 0; i < max_state_id; i++) {
+    unused_state_ids.reserve(candidate_ids.size() - num_states);
+    for (int i = 0; i < candidate_ids.size(); i++) {
       if (candidate_state_ids_excluded[i]) {
-        unused_state_ids.push_back(i);
+        unused_state_ids.push_back(candidate_ids[i]);
       } else {
         candidate_state_ids.push_back(i);
       }
     }
-    
+
     do {
 
       size_t cost;
 
-      std::vector<std::vector<std::vector<Group>>> flip_flop_inputs;
-      std::vector<std::vector<Group>> outputs;
+      std::vector<std::vector<std::vector<Group>>> test_flip_flop_inputs;
+      std::vector<std::vector<Group>> test_outputs;
 
 
       CheckStateAssignment(
@@ -486,21 +488,94 @@ void AssignStates(
         state_transitions,
         candidate_state_ids,
         unused_state_ids,
-        &flip_flop_inputs,
-        &outputs,
+        &test_flip_flop_inputs,
+        &test_outputs,
         &cost);
 
-      if (cost < min_cost) {
-        min_cost = cost;
-        min_flip_flop_inputs = std::move(flip_flop_inputs);
-        min_outputs = std::move(outputs);
-        min_state_ids = candidate_state_ids;
+      if (cost < *min_cost) {
+        *min_cost = cost;
+        *state_ids = candidate_state_ids;
+        *outputs = std::move(test_outputs);
+        *flip_flop_inputs = std::move(test_flip_flop_inputs);
       }
     } while (std::next_permutation(candidate_state_ids.begin(), candidate_state_ids.end()));
   } while (std::next_permutation(candidate_state_ids_excluded.begin(), candidate_state_ids_excluded.end()));
-  *state_ids = std::move(min_state_ids);
-  *outputs = std::move(min_outputs);
-  *flip_flop_inputs = std::move(min_flip_flop_inputs);
+
+}
+}  // namespace
+
+void AssignStates(
+  const FlipFlop& flip_flop,
+  size_t num_states,
+  size_t num_inputs,
+  size_t num_outputs,
+  const std::vector<StateTransition>& state_transitions,
+  std::vector<size_t>* state_ids,
+  std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
+  std::vector<std::vector<Group>>* outputs) {
+  size_t min_cost = std::numeric_limits<size_t>::max();
+  state_ids->clear();
+  flip_flop_inputs->clear();
+  outputs->clear();
+
+  // First check min bit assignment.
+  int state_bits = max_bit(num_states);
+  std::vector<size_t> candidate_ids;
+  for (size_t i = 0; i < (1UL << state_bits); ++i) {
+    candidate_ids.push_back(i);
+  }
+  AssignStatesForCandidates(
+    flip_flop,
+    num_states,
+    num_inputs,
+    num_outputs,
+    state_bits,
+    state_transitions,
+    candidate_ids,
+    state_ids,
+    flip_flop_inputs,
+    outputs,
+    &min_cost);
+
+  // Check for one hot.
+  candidate_ids.clear();
+  candidate_ids.reserve(num_states);
+  for (size_t i = 0; i < num_states; i++) {
+    candidate_ids.push_back(1ULL << i);
+  }
+  
+  size_t one_hot_cost;
+  std::vector<size_t> one_hot_state_ids;
+  std::vector<std::vector<std::vector<Group>>> one_hot_flip_flop_inputs;
+  std::vector<std::vector<Group>> one_hot_outputs;
+  std::vector<size_t> unused_ids;
+  unused_ids.reserve((1ULL << num_states) - num_states);
+  size_t min_power = 1;
+  for (size_t i = 0; i < (1ULL << num_states); ++i) {
+    if (i == min_power) {
+      i = (i << 1);
+    } else {
+      unused_ids.push_back(i);
+    }
+  }
+  CheckStateAssignment(
+    num_inputs,
+    num_outputs,
+    /* state_bits= */num_states,
+    flip_flop,
+    state_transitions,
+    candidate_ids,
+    unused_ids,
+    &one_hot_flip_flop_inputs,
+    &one_hot_outputs,
+    &one_hot_cost);
+
+  if (one_hot_cost < min_cost) {
+    min_cost = one_hot_cost;
+    *state_ids = std::move(candidate_ids);
+    *outputs = std::move(one_hot_outputs);
+    *flip_flop_inputs = std::move(one_hot_flip_flop_inputs);
+  }
 }
 
 void PrintStateAssignmentSolution(const std::vector<size_t>& state_ids,

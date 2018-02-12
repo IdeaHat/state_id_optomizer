@@ -14,6 +14,9 @@ std::string trim(std::string& str) {
   return str.substr(first, (last - first + 1));
 }
 
+TEST(KMapSolveTest, NoOnes) {
+
+}
 TEST(KMapSolveTest, ThreeVarsNoRace) {
   /*
     t v d q
