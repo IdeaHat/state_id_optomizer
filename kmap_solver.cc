@@ -519,9 +519,9 @@ void AssignStates(
   outputs->clear();
 
   // First check min bit assignment.
-  int state_bits = max_bit(num_states);
+  int state_bits = max_bit(num_states-1);
   std::vector<size_t> candidate_ids;
-  for (size_t i = 0; i < (1UL << state_bits); ++i) {
+  for (size_t i = 0; i < (1UL << (state_bits)); ++i) {
     candidate_ids.push_back(i);
   }
   AssignStatesForCandidates(
