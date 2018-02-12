@@ -1,5 +1,6 @@
 #include "kmap_solver.h"
 
+#include <iostream>
 #include <vector>
 #include <algorithm>
 #include <functional>
@@ -329,6 +330,7 @@ std::vector<Group> SolveKMap(int num_inputs, const std::unordered_set<size_t>& o
 }
 
 std::string SOP(const std::vector<Group>& group, const std::vector<std::string>& vars) {
+  if (group.size() == 1) { return group[0].SOP(vars); }
   std::vector<std::string> terms;
   for (const auto& g : group) {
     terms.push_back(g.SOP(vars));
@@ -344,6 +346,7 @@ void CheckStateAssignment(
   const FlipFlop& flip_flop,
   const std::vector<StateTransition>& state_transitions,
   const std::vector<size_t>& state_ids,
+  const std::vector<size_t>& unused_state_ids,
   std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
   std::vector<std::vector<Group>>* outputs,
   size_t* cost_ptr = nullptr) {
@@ -351,7 +354,7 @@ void CheckStateAssignment(
   flip_flop_inputs->clear();
   flip_flop_inputs->reserve(state_bits);
   size_t cost = 0;
-  for (int i = 0; i < state_bits; i++) {
+  for (int i = state_bits-1; i >=0; i--) {
     flip_flop_inputs->emplace_back();
     const size_t input_bit_mask = (1UL << i);
     for (int flip_flop_input = 0; flip_flop_input < flip_flop.input_count; flip_flop_input++) {
@@ -374,8 +377,15 @@ void CheckStateAssignment(
         }
         size_t inputs = state_transisiton.inputs;
         // add the input bits.
-        inputs |= (state_ids[state_transisiton.from_state] << (num_inputs + state_bits-1));
+        inputs |= (state_ids[state_transisiton.from_state] << (num_inputs));
         target_state->insert(inputs);
+      }
+      // Add the unused states.
+      for (size_t i : unused_state_ids) {
+        size_t state_id_mask = (i << (num_inputs));
+        for (int j = 0; j < (1 << num_inputs); j++) {
+          dcs.insert(state_id_mask | j);
+        }
       }
       // now we have a full truth table - solve it.
       size_t output_cost;
@@ -404,7 +414,7 @@ void CheckStateAssignment(
       }
       size_t inputs = state_transisiton.inputs;
       // add the input bits.
-      inputs |= (state_ids[state_transisiton.from_state] << (num_inputs + state_bits));
+      inputs |= (state_ids[state_transisiton.from_state] << (num_inputs));
       target_state->insert(inputs);
     }
     size_t output_cost;
@@ -416,13 +426,13 @@ void CheckStateAssignment(
   if (cost_ptr != nullptr) *cost_ptr = cost;
 }
 int max_bit(size_t b) {
-  int i = sizeof(size_t) * 8;
+  size_t i = sizeof(size_t) * 8 - 1;
   for (; i >= 0;  --i) {
     if (b & (1UL << i)) {
       break;
     }
   }
-  return i;
+  return i+1;
 }
 }
 
@@ -437,9 +447,9 @@ void AssignStates(
   std::vector<std::vector<Group>>* outputs) {
   int state_bits = max_bit(num_states);
   size_t max_state_id = (1 << state_bits);
-  std::vector<bool> candidate_state_ids_included(max_state_id, false);
-  for (size_t i = 0; i < num_states; ++i) {
-    candidate_state_ids_included[max_state_id - i - 1] = true;
+  std::vector<bool> candidate_state_ids_excluded(true, max_state_id);
+  for (int i = 0; i < num_states; ++i) {
+    candidate_state_ids_excluded[i] = false;
   }
 
   std::vector<std::vector<std::vector<Group>>> min_flip_flop_inputs;
@@ -447,14 +457,21 @@ void AssignStates(
   std::vector<size_t> min_state_ids;
   size_t min_cost = std::numeric_limits<size_t>::max();
   do {
+    // Probably a way to do this that isn't O(n), but I don't know if that buys us anything.
     std::vector<size_t> candidate_state_ids;
     candidate_state_ids.reserve(num_states);
-    for (size_t i = 0; i < candidate_state_ids_included.size(); ++i) {
-      if (candidate_state_ids_included[i]) {
+    std::vector<size_t> unused_state_ids;
+    unused_state_ids.reserve(max_state_id - num_states);
+    for (int i = 0; i < max_state_id; i++) {
+      if (candidate_state_ids_excluded[i]) {
+        unused_state_ids.push_back(i);
+      } else {
         candidate_state_ids.push_back(i);
       }
     }
+    
     do {
+
       size_t cost;
 
       std::vector<std::vector<std::vector<Group>>> flip_flop_inputs;
@@ -468,9 +485,11 @@ void AssignStates(
         flip_flop,
         state_transitions,
         candidate_state_ids,
+        unused_state_ids,
         &flip_flop_inputs,
         &outputs,
         &cost);
+
       if (cost < min_cost) {
         min_cost = cost;
         min_flip_flop_inputs = std::move(flip_flop_inputs);
@@ -478,10 +497,43 @@ void AssignStates(
         min_state_ids = candidate_state_ids;
       }
     } while (std::next_permutation(candidate_state_ids.begin(), candidate_state_ids.end()));
-  } while (std::next_permutation(candidate_state_ids_included.begin(), candidate_state_ids_included.end()));
+  } while (std::next_permutation(candidate_state_ids_excluded.begin(), candidate_state_ids_excluded.end()));
   *state_ids = std::move(min_state_ids);
   *outputs = std::move(min_outputs);
   *flip_flop_inputs = std::move(min_flip_flop_inputs);
 }
 
+void PrintStateAssignmentSolution(const std::vector<size_t>& state_ids,
+                                  const std::vector<std::vector<std::vector<Group>>>& flip_flop_inputs,
+                                  const std::vector<std::vector<Group>>& outputs,
+                                  const std::vector<std::string>& input_names,
+                                  const std::vector<std::string>& output_names,
+                                  const FlipFlop& flip_flop) {
+  for (int i = 0; i < state_ids.size(); i++) {
+    std::cout << "State " << i << ": " << state_ids[i] << std::endl;
+  }
+
+  
+    std::vector<std::string> new_input_names;
+    for (int i = 0; i < flip_flop_inputs.size(); i++) {
+      new_input_names.push_back("Q_" + std::to_string(i));
+    }
+    new_input_names.insert(new_input_names.end(),
+                           input_names.begin(),
+                           input_names.end());
+  
+
+  std::cout << std::endl;
+  for (int i = 0; i < flip_flop_inputs.size(); i++) {
+    for (int j = 0; j < flip_flop.input_count; j++) {
+      std::cout << flip_flop.input_names[j] << "_" << i << " = "
+        << SOP(flip_flop_inputs[i][j], new_input_names) << std::endl;
+    }
+  }
+  std::cout << std::endl;
+  for (int i = 0; i < output_names.size(); i++) {
+    std::cout << output_names[i] << " = " <<
+      SOP(outputs[i], new_input_names) << std::endl;;
+  }
+}
 }

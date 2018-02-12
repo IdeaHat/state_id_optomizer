@@ -69,11 +69,13 @@ struct StateTransition {
 struct FlipFlop {
   size_t gate_count;
   size_t input_count;
+  std::vector<std::string> input_names;
   Group transitions[4];
 };
 
 inline FlipFlop SNotR() {
   return { 2, 2,
+  {"S", "R'"},
   {{0b00, 0b01, 2},
   {0b11, 0b00, 2},
   {0b00, 0b00, 2},
@@ -94,5 +96,11 @@ void AssignStates(
   std::vector<std::vector<std::vector<Group>>>* flip_flop_inputs,
   std::vector<std::vector<Group>>* outputs);
 
+void PrintStateAssignmentSolution(const std::vector<size_t>& state_ids,
+                                  const std::vector<std::vector<std::vector<Group>>>& flip_flop_inputs,
+                                  const std::vector<std::vector<Group>>& outputs,
+                                  const std::vector<std::string>& input_names,
+                                  const std::vector<std::string>& output_names,
+                                  const FlipFlop& flip_flop);
 }
 #endif
