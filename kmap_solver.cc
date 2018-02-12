@@ -447,7 +447,7 @@ void AssignStates(
   std::vector<std::vector<Group>>* outputs) {
   int state_bits = max_bit(num_states);
   size_t max_state_id = (1 << state_bits);
-  std::vector<bool> candidate_state_ids_excluded(true, max_state_id);
+  std::vector<bool> candidate_state_ids_excluded(max_state_id, true);
   for (int i = 0; i < num_states; ++i) {
     candidate_state_ids_excluded[i] = false;
   }
